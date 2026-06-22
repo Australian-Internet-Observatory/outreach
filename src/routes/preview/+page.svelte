@@ -9,6 +9,12 @@
 		type Zip,
 		type ZipEntry
 	} from '$lib/preview/zip';
+	import {
+		formatOriginalTimestamp,
+		formatTimestamp,
+		tokenizeJson,
+		type JsonToken
+	} from '$lib/preview/json-tokens';
 	import { onMount } from 'svelte';
 
 	type SelectedFile = {
@@ -27,6 +33,7 @@
 	let selected = $state<SelectedFile | null>(null);
 	let sidebarOpen = $state(false);
 	let loadToken = $state(0);
+	let hoverToken = $state<{ original: string; human: string; x: number; y: number } | null>(null);
 
 	const isLoading = $derived(zips.some((z) => z.status === 'loading'));
 	const hasError = $derived(zips.some((z) => z.status === 'error'));
@@ -138,6 +145,40 @@
 		if (bytes < 1024) return `${bytes} B`;
 		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	}
+
+	const selectedTokens = $derived(
+		selected?.kind === 'json' ? tokenizeJson(selected.content) : null
+	);
+
+	function showTimestamp(target: HTMLElement, token: JsonToken) {
+		if (!token.isTimestamp || token.timestampSeconds === undefined) return;
+		const rect = target.getBoundingClientRect();
+		hoverToken = {
+			original: formatOriginalTimestamp(token.value),
+			human: formatTimestamp(token.timestampSeconds),
+			x: rect.left + rect.width / 2,
+			y: rect.top
+		};
+	}
+
+	function onTokenEnter(event: MouseEvent | FocusEvent, token: JsonToken) {
+		showTimestamp(event.currentTarget as HTMLElement, token);
+	}
+
+	function onTokenMove(event: MouseEvent) {
+		if (!hoverToken) return;
+		const target = event.currentTarget as HTMLElement;
+		const rect = target.getBoundingClientRect();
+		hoverToken = {
+			...hoverToken,
+			x: rect.left + rect.width / 2,
+			y: rect.top
+		};
+	}
+
+	function hideTimestamp() {
+		hoverToken = null;
 	}
 </script>
 
@@ -431,7 +472,28 @@
 						></iframe>
 					{:else if selected.kind === 'json'}
 						<pre
-							class="m-0 overflow-auto bg-muted/30 p-4 font-mono text-xs whitespace-pre-wrap break-words text-foreground sm:text-sm">{selected.content}</pre>
+							class="aio-json m-0 overflow-auto bg-muted/30 p-4 font-mono text-xs whitespace-pre-wrap break-words text-foreground sm:text-sm">{#if selectedTokens}{#each selectedTokens as token, i (i)}{#if token.type === 'key'}<span
+											class="aio-tok aio-tok-key">{token.value}</span
+										>{:else if token.type === 'string'}<span class="aio-tok aio-tok-string"
+											>{token.value}</span
+										>{:else if token.type === 'number'}{#if token.isTimestamp && token.timestampSeconds !== undefined}<span
+												class="aio-tok aio-tok-time"
+												role="button"
+												tabindex="0"
+												aria-label={`Timestamp ${formatTimestamp(token.timestampSeconds)} (${formatOriginalTimestamp(token.value)})`}
+												onmouseenter={(e) => onTokenEnter(e, token)}
+												onmousemove={onTokenMove}
+												onmouseleave={hideTimestamp}
+												onfocus={(e) => onTokenEnter(e, token)}
+												onblur={hideTimestamp}>{formatTimestamp(token.timestampSeconds)}</span
+											>{:else}<span class="aio-tok aio-tok-number">{token.value}</span
+											>{/if}{:else if token.type === 'boolean'}<span class="aio-tok aio-tok-bool"
+											>{token.value}</span
+										>{:else if token.type === 'null'}<span class="aio-tok aio-tok-null"
+											>{token.value}</span
+										>{:else if token.type === 'punct'}<span class="aio-tok aio-tok-punct"
+											>{token.value}</span
+										>{:else}{token.value}{/if}{/each}{/if}</pre>
 					{:else if selected.kind === 'text'}
 						<pre
 							class="m-0 overflow-auto bg-muted/30 p-4 font-mono text-xs whitespace-pre-wrap break-words text-foreground sm:text-sm">{selected.content}</pre>
@@ -448,3 +510,130 @@
 		</div>
 	</main>
 </div>
+
+{#if hoverToken}
+	<div class="aio-popover" role="tooltip" style="left: {hoverToken.x}px; top: {hoverToken.y}px;">
+		<div class="aio-popover-human">{hoverToken.human}</div>
+		<div class="aio-popover-original">Original: <code>{hoverToken.original}</code></div>
+	</div>
+{/if}
+
+<style>
+	:global(.aio-json .aio-tok) {
+		font-family: inherit;
+	}
+	:global(.aio-json .aio-tok-key) {
+		color: oklch(0.55 0.15 250);
+	}
+	:global(.aio-json .aio-tok-string) {
+		color: oklch(0.55 0.14 145);
+	}
+	:global(.aio-json .aio-tok-number) {
+		color: oklch(0.6 0.16 25);
+	}
+	:global(.aio-json .aio-tok-bool) {
+		color: oklch(0.55 0.18 295);
+		font-weight: 600;
+	}
+	:global(.aio-json .aio-tok-null) {
+		color: oklch(0.55 0.05 250);
+		font-style: italic;
+	}
+	:global(.aio-json .aio-tok-punct) {
+		color: oklch(0.5 0.02 250);
+	}
+	:global(.aio-json .aio-tok-time) {
+		color: oklch(0.5 0.16 25);
+		background-color: oklch(0.96 0.04 25);
+		border-bottom: 1px dashed oklch(0.7 0.12 25);
+		padding: 0 2px;
+		border-radius: 2px;
+		cursor: help;
+		transition: background-color 0.15s ease;
+	}
+	:global(.aio-json .aio-tok-time:hover),
+	:global(.aio-json .aio-tok-time:focus) {
+		background-color: oklch(0.92 0.06 25);
+		outline: none;
+	}
+	:global(.dark) :global(.aio-json .aio-tok-key) {
+		color: oklch(0.78 0.13 250);
+	}
+	:global(.dark) :global(.aio-json .aio-tok-string) {
+		color: oklch(0.78 0.12 145);
+	}
+	:global(.dark) :global(.aio-json .aio-tok-number) {
+		color: oklch(0.82 0.13 25);
+	}
+	:global(.dark) :global(.aio-json .aio-tok-bool) {
+		color: oklch(0.8 0.15 295);
+	}
+	:global(.dark) :global(.aio-json .aio-tok-null) {
+		color: oklch(0.75 0.04 250);
+	}
+	:global(.dark) :global(.aio-json .aio-tok-punct) {
+		color: oklch(0.65 0.02 250);
+	}
+	:global(.dark) :global(.aio-json .aio-tok-time) {
+		color: oklch(0.85 0.13 25);
+		background-color: oklch(0.28 0.05 25);
+		border-bottom-color: oklch(0.5 0.12 25);
+	}
+	:global(.dark) :global(.aio-json .aio-tok-time:hover),
+	:global(.dark) :global(.aio-json .aio-tok-time:focus) {
+		background-color: oklch(0.34 0.07 25);
+	}
+
+	.aio-popover {
+		position: fixed;
+		z-index: 50;
+		transform: translate(-50%, calc(-100% - 10px));
+		max-width: 320px;
+		min-width: 180px;
+		padding: 0.5rem 0.75rem;
+		border-radius: 0.5rem;
+		background-color: oklch(0.18 0.02 250);
+		color: oklch(0.96 0.005 250);
+		box-shadow:
+			0 4px 6px -1px rgb(0 0 0 / 0.15),
+			0 8px 24px -4px rgb(0 0 0 / 0.2);
+		font-size: 0.75rem;
+		line-height: 1.35;
+		pointer-events: none;
+		animation: aio-popover-in 0.12s ease-out;
+	}
+	.aio-popover::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		bottom: -5px;
+		transform: translateX(-50%) rotate(45deg);
+		width: 10px;
+		height: 10px;
+		background-color: oklch(0.18 0.02 250);
+	}
+	.aio-popover-human {
+		font-weight: 600;
+		margin-bottom: 0.125rem;
+	}
+	.aio-popover-original {
+		opacity: 0.7;
+		font-size: 0.6875rem;
+	}
+	.aio-popover code {
+		font-family:
+			ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+		font-size: 0.6875rem;
+	}
+
+	@keyframes aio-popover-in {
+		from {
+			opacity: 0;
+			transform: translate(-50%, calc(-100% - 4px));
+		}
+		to {
+			opacity: 1;
+			transform: translate(-50%, calc(-100% - 10px));
+		}
+	}
+</style>
