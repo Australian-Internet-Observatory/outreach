@@ -3,6 +3,15 @@ import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
+function toBasePath(value: string | undefined): '' | `/${string}` | undefined {
+	if (value === '') return '';
+	if (value == null) return undefined;
+
+	return value.startsWith('/')
+		? (value as `/${string}`)
+		: (`/${value}` as `/${string}`);
+}
+
 export default defineConfig({
 	plugins: [
 		tailwindcss(),
@@ -12,7 +21,10 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter()
+			adapter: adapter(),
+			paths: {
+				base: toBasePath(process.argv.includes('dev') ? '' : process.env.BASE_PATH)
+			}
 		})
 	]
 });
