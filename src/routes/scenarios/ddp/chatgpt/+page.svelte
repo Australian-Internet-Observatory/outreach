@@ -141,7 +141,7 @@
 	<title>ChatGPT workshop activity - Australian Internet Observatory</title>
 	<meta
 		name="description"
-		content="Enter your secret code to access your ChatGPT Data Download Package workshop materials."
+		content="Enter your access code to access your ChatGPT Data Download Package workshop materials."
 	/>
 </svelte:head>
 
@@ -252,7 +252,7 @@
 			<section class="max-w-4xl mx-auto py-6 sm:py-10" aria-labelledby="code-heading">
 				<div class="space-y-3">
 					<h1 id="code-heading" class="text-3xl leading-tight font-semibold text-foreground">
-						Enter your secret code
+						Enter your access code
 					</h1>
 					<p class="text-base leading-relaxed text-muted-foreground">
 						Use the code shared by your facilitator to access your ChatGPT Data Download Package
@@ -262,7 +262,7 @@
 
 				<form action={ROUTE_PATH} method="GET" class="mt-8 space-y-5" novalidate>
 					<div class="space-y-2">
-						<label for="code" class="text-sm font-medium text-foreground">Secret code</label>
+						<label for="code" class="text-sm font-medium text-foreground">Access code</label>
 						<input
 							id="code"
 							name="code"
@@ -283,7 +283,7 @@
 								That code was not recognised.
 							</p>
 						{:else}
-							<p id="code-error" class="sr-only">Enter the secret code from your activity card.</p>
+							<p id="code-error" class="sr-only">Enter the access code from your activity card.</p>
 						{/if}
 					</div>
 
