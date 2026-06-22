@@ -187,7 +187,7 @@
 	<meta name="description" content="Preview the contents of Data Download Packages." />
 </svelte:head>
 
-<div class="flex min-h-screen flex-col bg-background text-foreground">
+<div class="flex h-screen flex-col overflow-hidden bg-background text-foreground">
 	<header class="border-border/80 border-b bg-background/95 backdrop-blur">
 		<nav class="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-3 px-4">
 			<a
@@ -209,7 +209,7 @@
 		</nav>
 	</header>
 
-	<main class="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-6 sm:py-8">
+	<main class="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 py-6 sm:py-8">
 		<div class="mb-4 flex flex-wrap items-center gap-2 lg:hidden">
 			<button
 				type="button"
@@ -472,7 +472,7 @@
 						></iframe>
 					{:else if selected.kind === 'json'}
 						<pre
-							class="aio-json m-0 overflow-auto bg-muted/30 p-4 font-mono text-xs whitespace-pre-wrap break-words text-foreground sm:text-sm">{#if selectedTokens}{#each selectedTokens as token, i (i)}{#if token.type === 'key'}<span
+							class="aio-json m-0 h-full min-h-0 overflow-auto bg-muted/30 p-4 font-mono text-xs whitespace-pre-wrap break-words text-foreground sm:text-sm">{#if selectedTokens}{#each selectedTokens as token, i (i)}{#if token.type === 'key'}<span
 											class="aio-tok aio-tok-key">{token.value}</span
 										>{:else if token.type === 'string'}<span class="aio-tok aio-tok-string"
 											>{token.value}</span

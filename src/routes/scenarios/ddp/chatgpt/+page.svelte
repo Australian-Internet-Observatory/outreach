@@ -333,19 +333,25 @@
 						</p>
 					{/if}
 
+					<p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+						Use the button below to view your DDP files directly in the browser.
+					</p>
+
 					<div class="mt-4">
 						<a
 							href={`${resolve('/preview')}?${previewQuery}`}
+							target="_blank"
+							rel="noopener noreferrer"
 							class="no-print inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
 						>
 							{@render previewIcon()}
-							<span>Preview DDP{activeEntry.role === 'researcher' ? 's' : ''}</span>
+							<span>View DDP{activeEntry.role === 'researcher' ? 's' : ''}</span>
 						</a>
 					</div>
 
 					<p class="mt-4 text-sm leading-relaxed text-muted-foreground">
-						You can download the DDP using the button below, and upload to our ChatGPT Viewer to
-						help analysing it.
+						For more advanced analysis, download the DDP and upload it to our ChatGPT Viewer
+						using the buttons below.
 					</p>
 
 					<div class="mt-4 flex flex-col gap-3 sm:flex-row">
