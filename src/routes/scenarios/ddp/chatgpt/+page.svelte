@@ -82,9 +82,7 @@
 	const activeEntry = $derived(normalizedCode ? CODES[normalizedCode] : undefined);
 	const showError = $derived(normalizedCode.length > 0 && !activeEntry);
 	const singleDdp = $derived(
-		activeEntry?.role === 'donor' || activeEntry?.role === 'demo'
-			? activeEntry.ddps[0]
-			: undefined
+		activeEntry?.role === 'donor' || activeEntry?.role === 'demo' ? activeEntry.ddps[0] : undefined
 	);
 	const previewQuery = $derived(
 		activeEntry
@@ -359,8 +357,8 @@
 					</div>
 
 					<p class="mt-4 text-sm leading-relaxed text-muted-foreground">
-						For more advanced analysis, download the DDP and upload it to our ChatGPT Viewer
-						using the buttons below.
+						For more advanced analysis, download the DDP and upload it to our ChatGPT Viewer using
+						the buttons below.
 					</p>
 
 					<div class="mt-4 flex flex-col gap-3 sm:flex-row">
@@ -381,7 +379,7 @@
 							</button>
 						{:else if singleDdp}
 							<a
-								href={`/ddp/chatgpt/${singleDdp}`}
+								href={`outreach/ddp/chatgpt/${singleDdp}`}
 								download
 								class="no-print inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
 							>
