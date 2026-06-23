@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { unzipSync, zipSync, type Zippable } from 'fflate';
 
-	type Role = 'donor' | 'researcher';
+	type Role = 'donor' | 'researcher' | 'demo';
 	type CodeEntry = {
 		role: Role;
 		ddps: string[];
@@ -12,7 +12,8 @@
 	const CODES: Record<string, CodeEntry> = {
 		mercury: { role: 'donor', ddps: ['sample_1.zip'] },
 		jupiter: { role: 'donor', ddps: ['sample_2.zip'] },
-		helios: { role: 'researcher', ddps: ['sample_1.zip', 'sample_2.zip'] }
+		helios: { role: 'researcher', ddps: ['sample_1.zip', 'sample_2.zip'] },
+		demo: { role: 'demo', ddps: ['demo.zip'] }
 	};
 
 	const AIO_VIEWER_URL = 'https://aio2024.cloud.edu.au/ddrs/chatgpt';
@@ -80,7 +81,11 @@
 	const normalizedCode = $derived(rawCode.trim().toLowerCase());
 	const activeEntry = $derived(normalizedCode ? CODES[normalizedCode] : undefined);
 	const showError = $derived(normalizedCode.length > 0 && !activeEntry);
-	const donorZip = $derived(activeEntry?.role === 'donor' ? activeEntry.ddps[0] : undefined);
+	const singleDdp = $derived(
+		activeEntry?.role === 'donor' || activeEntry?.role === 'demo'
+			? activeEntry.ddps[0]
+			: undefined
+	);
 	const previewQuery = $derived(
 		activeEntry
 			? activeEntry.ddps.map((d) => `target=${encodeURIComponent(`chatgpt/${d}`)}`).join('&')
@@ -301,7 +306,7 @@
 				<section class="aio-card rounded-xl border border-border bg-card p-6 shadow-sm">
 					{#if activeEntry.role === 'researcher'}
 						<h2 class="text-2xl leading-snug font-semibold text-foreground">Collected DDPs</h2>
-					{:else if donorZip}
+					{:else if singleDdp}
 						<h2 class="text-2xl leading-snug font-semibold text-foreground">Your DDP</h2>
 					{/if}
 
@@ -325,7 +330,11 @@
 							You will analyse the two DDPs donated by anonymous participants to help answer the
 							research question.
 						</p>
-					{:else if donorZip}
+					{:else if activeEntry.role === 'demo'}
+						<p class="mt-4 text-base leading-relaxed text-foreground">
+							You will get the context about your activity here
+						</p>
+					{:else if singleDdp}
 						<p class="mt-4 text-base leading-relaxed text-foreground">
 							In this scenario, you are a participant who has donated your ChatGPT data to a
 							research project. You will review your own DDP and identify any sensitive or personal
@@ -370,9 +379,9 @@
 									<span>Download DDPs</span>
 								{/if}
 							</button>
-						{:else if donorZip}
+						{:else if singleDdp}
 							<a
-								href={`/ddp/chatgpt/${donorZip}`}
+								href={`/ddp/chatgpt/${singleDdp}`}
 								download
 								class="no-print inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
 							>
@@ -520,6 +529,21 @@
 									</div>
 								{/each}
 							</div>
+						</div>
+					{:else if activeEntry.role === 'demo'}
+						<p class="mt-4 text-base leading-relaxed text-foreground">
+							You will get some objective, and a workspace for you to take notes of your finding
+							here
+						</p>
+						<div class="mt-5">
+							<label for="demo-note" class="text-sm font-medium text-foreground">Note</label>
+							<textarea
+								id="demo-note"
+								name="demo-note"
+								rows="4"
+								placeholder="Type your notes here..."
+								class="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+							></textarea>
 						</div>
 					{:else}
 						<p class="mt-4 text-base leading-relaxed text-foreground">
