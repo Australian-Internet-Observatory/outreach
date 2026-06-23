@@ -379,7 +379,7 @@
 							</button>
 						{:else if singleDdp}
 							<a
-								href={`outreach/ddp/chatgpt/${singleDdp}`}
+								href={`/outreach/ddp/chatgpt/${singleDdp}`}
 								download
 								class="no-print inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
 							>
