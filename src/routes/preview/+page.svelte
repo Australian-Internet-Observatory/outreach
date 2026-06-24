@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base, resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { zipSync, type Zippable } from 'fflate';
 	import {
 		entryToText,
 		formatJson,
@@ -34,11 +35,16 @@
 	let sidebarOpen = $state(false);
 	let loadToken = $state(0);
 	let hoverToken = $state<{ original: string; human: string; x: number; y: number } | null>(null);
+	let isDownloading = $state(false);
+	let downloadError = $state<string | null>(null);
 
 	const isLoading = $derived(zips.some((z) => z.status === 'loading'));
 	const hasError = $derived(zips.some((z) => z.status === 'error'));
 	const allLoaded = $derived(
 		zips.length > 0 && zips.every((z) => z.status === 'ready' || z.status === 'error')
+	);
+	const canDownload = $derived(
+		zips.some((z) => z.status === 'ready' && z.entries.length > 0)
 	);
 
 	function deriveName(target: string): string {
@@ -179,6 +185,43 @@
 
 	function hideTimestamp() {
 		hoverToken = null;
+	}
+
+	async function downloadAsZip() {
+		if (!canDownload || isDownloading) return;
+		isDownloading = true;
+		downloadError = null;
+		try {
+			const folder: Zippable = {};
+			for (const zip of zips) {
+				if (zip.status !== 'ready' || zip.entries.length === 0) continue;
+				const entries: Zippable = {};
+				for (const entry of zip.entries) {
+					entries[entry.path] = entry.content;
+				}
+				folder[zip.name] = entries;
+			}
+			const combined = zipSync(folder, { level: 6 });
+			const blob = new Blob([combined], { type: 'application/zip' });
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `${derivedDownloadName()}.zip`;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			URL.revokeObjectURL(url);
+		} catch (err) {
+			downloadError = (err as Error).message;
+		} finally {
+			isDownloading = false;
+		}
+	}
+
+	function derivedDownloadName(): string {
+		const names = targets.map(deriveName).filter(Boolean);
+		if (names.length === 0) return 'ddp-preview';
+		return names.join('-');
 	}
 </script>
 
@@ -401,6 +444,57 @@
 								</section>
 							{/each}
 						</div>
+					{/if}
+				</div>
+				<div class="border-t border-border p-3 lg:p-4">
+					<button
+						type="button"
+						onclick={downloadAsZip}
+						disabled={!canDownload || isDownloading}
+						aria-label="Download as zip"
+						class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+					>
+						{#if isDownloading}
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+								class="animate-spin"
+							>
+								<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+							</svg>
+							<span>Preparing&hellip;</span>
+						{:else}
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+							>
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+								<polyline points="7 10 12 15 17 10" />
+								<line x1="12" y1="15" x2="12" y2="3" />
+							</svg>
+							<span>Download</span>
+						{/if}
+					</button>
+					{#if downloadError}
+						<p role="alert" class="mt-2 text-xs text-destructive">
+							{downloadError}
+						</p>
 					{/if}
 				</div>
 			</aside>
