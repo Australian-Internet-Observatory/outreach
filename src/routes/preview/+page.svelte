@@ -19,6 +19,7 @@
 		type JsonToken
 	} from '$lib/preview/json-tokens';
 	import { parseCsv } from '$lib/preview/csv';
+	import { FILES } from './assets';
 	import { onMount } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import * as HoverCard from '$lib/components/ui/hover-card/index.js';
@@ -32,10 +33,45 @@
 		content: string;
 	};
 
+	type ZipGroup = {
+		name: string;
+		zips: Zip[];
+	};
+
 	const basePath = base;
 	const chatgptHref = resolve('/scenarios/ddp/chatgpt');
 
 	let targets = $derived(page.url.searchParams.getAll('target').filter(Boolean));
+	let expandedTargets = $derived.by(() => {
+		const out: string[] = [];
+		for (const t of targets) {
+			if (t === 'all') {
+				for (const f of FILES) {
+					if (!out.includes(f)) out.push(f);
+				}
+			} else if (!out.includes(t)) {
+				out.push(t);
+			}
+		}
+		return out;
+	});
+	function topDirOf(target: string): string {
+		return target.split('/')[0] ?? target;
+	}
+	const zipGroups = $derived.by(() => {
+		const groups: ZipGroup[] = [];
+		for (const zip of zips) {
+			const seg = topDirOf(zip.target);
+			const existing = groups.find((g) => g.name === seg);
+			if (existing) {
+				existing.zips.push(zip);
+			} else {
+				groups.push({ name: seg, zips: [zip] });
+			}
+		}
+		return groups;
+	});
+	const hasMultipleTopDirs = $derived(zipGroups.length > 1);
 	let zips = $state<Zip[]>([]);
 	let selected = $state<SelectedFile | null>(null);
 	let sidebarOpen = $state(false);
@@ -65,15 +101,22 @@
 	}
 
 	onMount(() => {
-		const currentTargets = targets;
+		const currentTargets = expandedTargets;
 		const token = ++loadToken;
 		selected = null;
 
 		const current = new Map(zips.map((z) => [z.target, z]));
 		const next: Zip[] = [];
 
+		const groupCounts = new Map<string, number>();
+		for (const t of currentTargets) {
+			const seg = topDirOf(t);
+			groupCounts.set(seg, (groupCounts.get(seg) ?? 0) + 1);
+		}
+
 		for (const target of currentTargets) {
 			const existing = current.get(target);
+			const defaultExpanded = (groupCounts.get(topDirOf(target)) ?? 0) <= 1;
 			if (existing) {
 				next.push(existing);
 			} else if (isValidTarget(target)) {
@@ -83,7 +126,7 @@
 					name: deriveName(target),
 					status: 'loading',
 					entries: [],
-					expanded: true
+					expanded: defaultExpanded
 				});
 			} else {
 				next.push({
@@ -93,7 +136,7 @@
 					status: 'error',
 					error: 'Invalid target path.',
 					entries: [],
-					expanded: true
+					expanded: defaultExpanded
 				});
 			}
 		}
@@ -106,7 +149,9 @@
 			if (!isValidTarget(target)) continue;
 			loadZip(target, basePath).then((loaded) => {
 				if (token !== loadToken) return;
-				zips = zips.map((z) => (z.target === loaded.target ? loaded : z));
+				const currentEntry = zips.find((z) => z.target === loaded.target);
+				const expanded = currentEntry?.expanded ?? true;
+				zips = zips.map((z) => (z.target === loaded.target ? { ...loaded, expanded } : z));
 				autoSelectFirstFile();
 			});
 		}
@@ -158,6 +203,21 @@
 			expandedFolders.delete(key);
 		} else {
 			expandedFolders.add(key);
+		}
+	}
+
+	let expandedTopDirs = new SvelteSet<string>();
+
+	function isTopDirExpanded(name: string): boolean {
+		if (zipGroups.length <= 1) return true;
+		return expandedTopDirs.has(name);
+	}
+
+	function toggleTopDir(name: string) {
+		if (expandedTopDirs.has(name)) {
+			expandedTopDirs.delete(name);
+		} else {
+			expandedTopDirs.add(name);
 		}
 	}
 
@@ -372,19 +432,40 @@
 				</div>
 
 				<div class="flex-1 overflow-y-auto p-2">
-					{#if targets.length === 0}
+					{#if expandedTargets.length === 0}
 						<div class="px-2 py-6 text-center text-sm text-muted-foreground">
 							<p class="font-medium text-foreground">No targets provided</p>
 							<p class="mt-1">
 								Add a <code class="rounded bg-muted px-1 py-0.5 text-xs">target</code> query parameter
 								to preview a zip file.
 							</p>
-							<p class="mt-3 text-xs">
-								Example:
-								<code class="block break-all rounded bg-muted px-2 py-1 text-left text-xs">
-									?target=chatgpt/sample_1.zip
-								</code>
-							</p>
+							{#if FILES.length > 0}
+								<p class="mt-3 text-xs">
+									Example:
+									<code class="block break-all rounded bg-muted px-2 py-1 text-left text-xs">
+										?target={FILES[0]}
+									</code>
+								</p>
+								<a
+									href="?target=all"
+									class="mt-3 inline-block rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+								>
+									Preview all samples
+								</a>
+								<p class="mt-4 text-xs font-medium text-foreground">Available samples</p>
+								<ul class="mt-2 space-y-1 text-left">
+									{#each FILES as file (file)}
+										<li>
+											<a
+												href={`?target=${encodeURIComponent(file)}`}
+												class="block truncate rounded bg-muted px-2 py-1 text-xs text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+											>
+												{file}
+											</a>
+										</li>
+									{/each}
+								</ul>
+							{/if}
 						</div>
 					{:else if isLoading && zips.every((z) => z.status === 'loading')}
 						<div class="space-y-3 p-2">
@@ -403,7 +484,7 @@
 									onclick={() => toggleFolder(zip.id, node.path)}
 									aria-expanded={isFolderExpanded(zip.id, node.path)}
 									class="flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm font-medium text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-									style="padding-left: {depth * 6 + 2}px"
+									style="padding-left: {depth * 6}px"
 								>
 									<svg
 										xmlns="http://www.w3.org/2000/svg"
@@ -465,9 +546,9 @@
 									)
 										? 'bg-accent text-accent-foreground'
 										: 'text-foreground hover:bg-accent/60'}"
-									style="padding-left: {depth * 6 + 2}px"
+									style="padding-left: {depth * 6}px"
 								>
-									<span class="w-3.5 shrink-0" aria-hidden="true"></span>
+									<span class="w-1 shrink-0" aria-hidden="true"></span>
 									<span
 										class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase"
 									>
@@ -491,82 +572,141 @@
 								</button>
 							{/if}
 						{/snippet}
-						<div class="space-y-1">
-							{#each zips as zip (zip.id)}
-								<section class="rounded-lg">
-									<button
-										type="button"
-										onclick={() => toggleZip(zip)}
-										aria-expanded={zip.expanded}
-										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+						{#snippet zipSection(zip: Zip)}
+							<section class="rounded-lg">
+								<button
+									type="button"
+									onclick={() => toggleZip(zip)}
+									aria-expanded={zip.expanded}
+									class="flex w-full items-center gap-2 rounded-md py-1.5 text-left text-sm font-medium text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+										class="shrink-0 text-muted-foreground transition-transform"
+										class:rotate-90={zip.expanded}
 									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											width="14"
-											height="14"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											aria-hidden="true"
-											class="shrink-0 text-muted-foreground transition-transform"
-											class:rotate-90={zip.expanded}
+										<polyline points="9 18 15 12 9 6" />
+									</svg>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+										class="text-muted-foreground"
+									>
+										<path
+											d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+										/>
+									</svg>
+									<span class="truncate">{zip.name}</span>
+									<span class="ml-auto text-xs font-normal text-muted-foreground">
+										{zip.target}
+									</span>
+								</button>
+								{#if zip.expanded}
+									<div class="mt-0.5 ml-2 space-y-0.5 border-l border-border pl-2">
+										{#if zip.status === 'loading'}
+											<div
+												class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground"
+											>
+												<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground"
+												></span>
+												Loading&hellip;
+											</div>
+										{:else if zip.status === 'error'}
+											<p class="rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+												{zip.error ?? 'Failed to load.'}
+											</p>
+										{:else if zip.entries.length === 0}
+											<p class="rounded-md px-2 py-1.5 text-xs text-muted-foreground">
+												No files in this archive.
+											</p>
+										{:else}
+											{#each trees.get(zip.id) ?? [] as node (node.path)}
+												{@render treeNode(zip, node, 0)}
+											{/each}
+										{/if}
+									</div>
+								{/if}
+							</section>
+						{/snippet}
+						<div class="space-y-1">
+							{#if hasMultipleTopDirs}
+								{#each zipGroups as group (group.name)}
+									<section class="rounded-lg">
+										<button
+											type="button"
+											onclick={() => toggleTopDir(group.name)}
+											aria-expanded={isTopDirExpanded(group.name)}
+											class="flex w-full items-center gap-2 rounded-md py-1.5 text-left text-sm font-semibold text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
 										>
-											<polyline points="9 18 15 12 9 6" />
-										</svg>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											width="16"
-											height="16"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											aria-hidden="true"
-											class="text-muted-foreground"
-										>
-											<path
-												d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
-											/>
-										</svg>
-										<span class="truncate">{zip.name}</span>
-										<span class="ml-auto text-xs font-normal text-muted-foreground">
-											{zip.target}
-										</span>
-									</button>
-									{#if zip.expanded}
-										<div class="mt-0.5 ml-6 space-y-0.5 border-l border-border pl-2">
-											{#if zip.status === 'loading'}
-												<div
-													class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground"
-												>
-													<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground"
-													></span>
-													Loading&hellip;
-												</div>
-											{:else if zip.status === 'error'}
-												<p
-													class="rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
-												>
-													{zip.error ?? 'Failed to load.'}
-												</p>
-											{:else if zip.entries.length === 0}
-												<p class="rounded-md px-2 py-1.5 text-xs text-muted-foreground">
-													No files in this archive.
-												</p>
-											{:else}
-												{#each trees.get(zip.id) ?? [] as node (node.path)}
-													{@render treeNode(zip, node, 0)}
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												width="14"
+												height="14"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												aria-hidden="true"
+												class="shrink-0 text-muted-foreground transition-transform"
+												class:rotate-90={isTopDirExpanded(group.name)}
+											>
+												<polyline points="9 18 15 12 9 6" />
+											</svg>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												width="16"
+												height="16"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												aria-hidden="true"
+												class="text-muted-foreground"
+											>
+												<path
+													d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+												/>
+											</svg>
+											<span class="truncate">{group.name}</span>
+											<span class="ml-auto text-xs font-normal text-muted-foreground">
+												{group.zips.length} archive{group.zips.length === 1 ? '' : 's'}
+											</span>
+										</button>
+										{#if isTopDirExpanded(group.name)}
+											<div class="mt-0.5 ml-2 space-y-1 border-l border-border pl-2">
+												{#each group.zips as zip (zip.id)}
+													{@render zipSection(zip)}
 												{/each}
-											{/if}
-										</div>
-									{/if}
-								</section>
-							{/each}
+											</div>
+										{/if}
+									</section>
+								{/each}
+							{:else}
+								{#each zips as zip (zip.id)}
+									{@render zipSection(zip)}
+								{/each}
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -612,7 +752,7 @@
 								<polyline points="7 10 12 15 17 10" />
 								<line x1="12" y1="15" x2="12" y2="3" />
 							</svg>
-							<span>Download</span>
+							<span>Download All</span>
 						{/if}
 					</button>
 					{#if downloadError}
@@ -634,7 +774,7 @@
 								{selected.zipName}
 								<span class="font-normal text-muted-foreground"> / {selected.path}</span>
 							</h2>
-						{:else if targets.length === 0}
+						{:else if expandedTargets.length === 0}
 							<h2 class="text-sm font-semibold tracking-tight">No file selected</h2>
 						{:else if isLoading}
 							<h2 class="text-sm font-semibold tracking-tight">Loading&hellip;</h2>
@@ -651,7 +791,7 @@
 				<div class="min-h-0 flex-1 overflow-auto">
 					{#if !selected}
 						<div class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-							{#if targets.length === 0}
+							{#if expandedTargets.length === 0}
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
 									width="40"
@@ -673,6 +813,24 @@
 									Provide a <code class="rounded bg-muted px-1 py-0.5">target</code> query parameter to
 									preview a zip file.
 								</p>
+								{#if FILES.length > 0}
+									<div class="flex flex-wrap justify-center gap-2">
+										<a
+											href="?target=all"
+											class="rounded-full border border-primary bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+										>
+											all
+										</a>
+										{#each FILES as file (file)}
+											<a
+												href={`?target=${encodeURIComponent(file)}`}
+												class="rounded-full border border-input bg-background px-3 py-1 text-xs font-medium text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+											>
+												{file}
+											</a>
+										{/each}
+									</div>
+								{/if}
 							{:else if isLoading}
 								<p class="text-sm text-muted-foreground">Loading zip contents&hellip;</p>
 							{:else}
