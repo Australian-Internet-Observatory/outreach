@@ -3,10 +3,12 @@
 	import { page } from '$app/state';
 	import { zipSync, type Zippable } from 'fflate';
 	import {
+		buildTree,
 		entryToText,
 		formatJson,
 		isValidTarget,
 		loadZip,
+		type TreeNode,
 		type Zip,
 		type ZipEntry
 	} from '$lib/preview/zip';
@@ -16,13 +18,17 @@
 		tokenizeJson,
 		type JsonToken
 	} from '$lib/preview/json-tokens';
+	import { parseCsv } from '$lib/preview/csv';
 	import { onMount } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
+	import * as HoverCard from '$lib/components/ui/hover-card/index.js';
+	import * as Table from '$lib/components/ui/table/index.js';
 
 	type SelectedFile = {
 		zipId: string;
 		zipName: string;
 		path: string;
-		kind: 'html' | 'json' | 'text' | 'binary' | 'unknown';
+		kind: 'html' | 'json' | 'csv' | 'text' | 'binary' | 'unknown';
 		content: string;
 	};
 
@@ -37,14 +43,16 @@
 	let hoverToken = $state<{ original: string; human: string; x: number; y: number } | null>(null);
 	let isDownloading = $state(false);
 	let downloadError = $state<string | null>(null);
+	let expandedFolders = new SvelteSet<string>();
 
 	const isLoading = $derived(zips.some((z) => z.status === 'loading'));
 	const hasError = $derived(zips.some((z) => z.status === 'error'));
 	const allLoaded = $derived(
 		zips.length > 0 && zips.every((z) => z.status === 'ready' || z.status === 'error')
 	);
-	const canDownload = $derived(
-		zips.some((z) => z.status === 'ready' && z.entries.length > 0)
+	const canDownload = $derived(zips.some((z) => z.status === 'ready' && z.entries.length > 0));
+	const trees = $derived(
+		new Map(zips.map((z) => [z.id, z.status === 'ready' ? buildTree(z.entries) : []]))
 	);
 
 	function deriveName(target: string): string {
@@ -128,8 +136,29 @@
 		}
 	}
 
+	function isEntryActive(zipId: string, entry: ZipEntry): boolean {
+		return selected?.zipId === zipId && selected?.path === entry.path;
+	}
+
 	function toggleZip(zip: Zip) {
 		zips = zips.map((z) => (z.id === zip.id ? { ...z, expanded: !z.expanded } : z));
+	}
+
+	function folderKey(zipId: string, folderPath: string): string {
+		return `${zipId}::${folderPath}`;
+	}
+
+	function isFolderExpanded(zipId: string, folderPath: string): boolean {
+		return expandedFolders.has(folderKey(zipId, folderPath));
+	}
+
+	function toggleFolder(zipId: string, folderPath: string) {
+		const key = folderKey(zipId, folderPath);
+		if (expandedFolders.has(key)) {
+			expandedFolders.delete(key);
+		} else {
+			expandedFolders.add(key);
+		}
 	}
 
 	function toggleSidebar() {
@@ -143,6 +172,7 @@
 	function entryIcon(kind: ZipEntry['kind']): string {
 		if (kind === 'html') return 'html';
 		if (kind === 'json') return 'json';
+		if (kind === 'csv') return 'csv';
 		if (kind === 'text') return 'txt';
 		return 'bin';
 	}
@@ -156,6 +186,24 @@
 	const selectedTokens = $derived(
 		selected?.kind === 'json' ? tokenizeJson(selected.content) : null
 	);
+
+	const CSV_ROW_LIMIT = 1000;
+	const selectedCsv = $derived(
+		selected?.kind === 'csv'
+			? parseCsv(selected.content, selected.path.split('.').pop() ?? '')
+			: null
+	);
+	const csvColumnCount = $derived(
+		selectedCsv
+			? selectedCsv.rows.reduce((max, r) => Math.max(max, r.length), selectedCsv.headers.length)
+			: 0
+	);
+
+	function range(n: number): number[] {
+		const out: number[] = [];
+		for (let i = 0; i < n; i++) out.push(i);
+		return out;
+	}
 
 	function showTimestamp(target: HTMLElement, token: JsonToken) {
 		if (!token.isTimestamp || token.timestampSeconds === undefined) return;
@@ -252,7 +300,9 @@
 		</nav>
 	</header>
 
-	<main class="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 py-6 sm:py-8">
+	<main
+		class="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 py-6 sm:py-8"
+	>
 		<div class="mb-4 flex flex-wrap items-center gap-2 lg:hidden">
 			<button
 				type="button"
@@ -346,6 +396,101 @@
 							{/each}
 						</div>
 					{:else}
+						{#snippet treeNode(zip: Zip, node: TreeNode, depth: number)}
+							{#if node.type === 'folder'}
+								<button
+									type="button"
+									onclick={() => toggleFolder(zip.id, node.path)}
+									aria-expanded={isFolderExpanded(zip.id, node.path)}
+									class="flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm font-medium text-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+									style="padding-left: {depth * 6 + 2}px"
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+										class="shrink-0 text-muted-foreground transition-transform"
+										class:rotate-90={isFolderExpanded(zip.id, node.path)}
+									>
+										<polyline points="9 18 15 12 9 6" />
+									</svg>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+										class="shrink-0 text-muted-foreground"
+									>
+										<path
+											d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+										/>
+									</svg>
+									<HoverCard.Root openDelay={400} closeDelay={150}>
+										<HoverCard.Trigger>
+											{#snippet child({ props })}
+												<span {...props} class="truncate">{node.name}</span>
+											{/snippet}
+										</HoverCard.Trigger>
+										<HoverCard.Content class="w-max max-w-xs p-2 text-xs" side="top">
+											{node.name}
+										</HoverCard.Content>
+									</HoverCard.Root>
+								</button>
+								{#if isFolderExpanded(zip.id, node.path)}
+									{#each node.children as childNode (childNode.path)}
+										{@render treeNode(zip, childNode, depth + 1)}
+									{/each}
+								{/if}
+							{:else}
+								<button
+									type="button"
+									onclick={() => selectEntry(zip, node.entry)}
+									aria-current={isEntryActive(zip.id, node.entry) ? 'true' : undefined}
+									class="group flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none {isEntryActive(
+										zip.id,
+										node.entry
+									)
+										? 'bg-accent text-accent-foreground'
+										: 'text-foreground hover:bg-accent/60'}"
+									style="padding-left: {depth * 6 + 2}px"
+								>
+									<span class="w-3.5 shrink-0" aria-hidden="true"></span>
+									<span
+										class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase"
+									>
+										{entryIcon(node.entry.kind)}
+									</span>
+									<HoverCard.Root openDelay={400} closeDelay={150}>
+										<HoverCard.Trigger>
+											{#snippet child({ props })}
+												<span {...props} class="truncate">{node.entry.name}</span>
+											{/snippet}
+										</HoverCard.Trigger>
+										<HoverCard.Content class="w-max max-w-xs p-2 text-xs" side="top">
+											{node.entry.name}
+										</HoverCard.Content>
+									</HoverCard.Root>
+									<span
+										class="ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground opacity-0 group-hover:opacity-100"
+									>
+										{formatSize(node.entry.size)}
+									</span>
+								</button>
+							{/if}
+						{/snippet}
 						<div class="space-y-1">
 							{#each zips as zip (zip.id)}
 								<section class="rounded-lg">
@@ -414,29 +559,8 @@
 													No files in this archive.
 												</p>
 											{:else}
-												{#each zip.entries as entry (entry.path)}
-													{@const isActive =
-														selected?.zipId === zip.id && selected?.path === entry.path}
-													<button
-														type="button"
-														onclick={() => selectEntry(zip, entry)}
-														aria-current={isActive ? 'true' : undefined}
-														class="group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none {isActive
-															? 'bg-accent text-accent-foreground'
-															: 'text-foreground hover:bg-accent/60'}"
-													>
-														<span
-															class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase"
-														>
-															{entryIcon(entry.kind)}
-														</span>
-														<span class="truncate">{entry.name}</span>
-														<span
-															class="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100"
-														>
-															{formatSize(entry.size)}
-														</span>
-													</button>
+												{#each trees.get(zip.id) ?? [] as node (node.path)}
+													{@render treeNode(zip, node, 0)}
 												{/each}
 											{/if}
 										</div>
@@ -588,6 +712,64 @@
 										>{:else if token.type === 'punct'}<span class="aio-tok aio-tok-punct"
 											>{token.value}</span
 										>{:else}{token.value}{/if}{/each}{/if}</pre>
+					{:else if selected.kind === 'csv'}
+						{#if selectedCsv && (selectedCsv.headers.length > 0 || selectedCsv.rows.length > 0)}
+							<div class="flex h-full min-h-0 flex-col">
+								<div
+									class="flex items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs text-muted-foreground"
+								>
+									<span>
+										{selectedCsv.rows.length.toLocaleString()} row{selectedCsv.rows.length === 1
+											? ''
+											: 's'}
+										&middot; {csvColumnCount} column{csvColumnCount === 1 ? '' : 's'}
+									</span>
+									{#if selectedCsv.rows.length > CSV_ROW_LIMIT}
+										<span class="text-muted-foreground">
+											Showing first {CSV_ROW_LIMIT.toLocaleString()} rows
+										</span>
+									{/if}
+								</div>
+								<div class="min-h-0 flex-1 overflow-auto">
+									<Table.Root class="w-full border-collapse">
+										<Table.Header class="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+											<Table.Row>
+												<Table.Head
+													class="w-10 text-center text-xs font-semibold text-muted-foreground"
+													>#</Table.Head
+												>
+												{#each range(csvColumnCount) as i (i)}
+													<Table.Head class="whitespace-nowrap text-xs font-semibold">
+														{selectedCsv.headers[i] ?? ''}
+													</Table.Head>
+												{/each}
+											</Table.Row>
+										</Table.Header>
+										<Table.Body>
+											{#each selectedCsv.rows.slice(0, CSV_ROW_LIMIT) as row, rowIndex (rowIndex)}
+												<Table.Row>
+													<Table.Cell
+														class="w-10 text-center text-xs text-muted-foreground tabular-nums"
+													>
+														{rowIndex + 1}
+													</Table.Cell>
+													{#each range(csvColumnCount) as i (i)}
+														<Table.Cell class="whitespace-nowrap text-xs">
+															{row[i] ?? ''}
+														</Table.Cell>
+													{/each}
+												</Table.Row>
+											{/each}
+										</Table.Body>
+									</Table.Root>
+								</div>
+							</div>
+						{:else}
+							<div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+								<p class="text-sm font-medium text-foreground">Empty CSV file</p>
+								<p class="text-xs text-muted-foreground">No rows to display.</p>
+							</div>
+						{/if}
 					{:else if selected.kind === 'text'}
 						<pre
 							class="m-0 overflow-auto bg-muted/30 p-4 font-mono text-xs whitespace-pre-wrap break-words text-foreground sm:text-sm">{selected.content}</pre>

@@ -1,6 +1,6 @@
 import { strFromU8, unzipSync } from 'fflate';
 
-export type EntryKind = 'html' | 'json' | 'text' | 'binary' | 'unknown';
+export type EntryKind = 'html' | 'json' | 'csv' | 'text' | 'binary' | 'unknown';
 
 export type ZipEntry = {
 	path: string;
@@ -20,9 +20,26 @@ export type Zip = {
 	expanded: boolean;
 };
 
-const TEXT_EXTENSIONS = new Set(['txt', 'md', 'csv', 'tsv', 'log', 'xml', 'yaml', 'yml']);
+export type FolderNode = {
+	type: 'folder';
+	name: string;
+	path: string;
+	children: TreeNode[];
+};
+
+export type FileNode = {
+	type: 'file';
+	name: string;
+	path: string;
+	entry: ZipEntry;
+};
+
+export type TreeNode = FolderNode | FileNode;
+
+const TEXT_EXTENSIONS = new Set(['txt', 'md', 'log', 'xml', 'yaml', 'yml']);
 const HTML_EXTENSIONS = new Set(['html', 'htm']);
 const JSON_EXTENSIONS = new Set(['json']);
+const CSV_EXTENSIONS = new Set(['csv', 'tsv']);
 
 export function isValidTarget(target: string): boolean {
 	if (!target) return false;
@@ -42,6 +59,7 @@ export function classifyEntry(path: string, content: Uint8Array): EntryKind {
 	const ext = (path.split('.').pop() ?? '').toLowerCase();
 	if (HTML_EXTENSIONS.has(ext)) return 'html';
 	if (JSON_EXTENSIONS.has(ext)) return 'json';
+	if (CSV_EXTENSIONS.has(ext)) return 'csv';
 	if (TEXT_EXTENSIONS.has(ext)) return 'text';
 	if (looksLikeText(content)) return 'text';
 	return 'binary';
@@ -148,4 +166,56 @@ export async function loadZip(target: string, basePath: string): Promise<Zip> {
 		entries,
 		expanded: true
 	};
+}
+
+export function buildTree(entries: ZipEntry[]): TreeNode[] {
+	const root: FolderNode = { type: 'folder', name: '', path: '', children: [] };
+
+	for (const entry of entries) {
+		const parts = entry.path.split('/').filter(Boolean);
+		let node = root;
+		let currentPath = '';
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i];
+			currentPath = currentPath ? `${currentPath}/${part}` : part;
+			const isLast = i === parts.length - 1;
+			if (isLast) {
+				node.children.push({
+					type: 'file',
+					name: part,
+					path: entry.path,
+					entry
+				});
+			} else {
+				const existing = node.children.find(
+					(c): c is FolderNode => c.type === 'folder' && c.name === part
+				);
+				if (existing) {
+					node = existing;
+				} else {
+					const folder: FolderNode = {
+						type: 'folder',
+						name: part,
+						path: currentPath,
+						children: []
+					};
+					node.children.push(folder);
+					node = folder;
+				}
+			}
+		}
+	}
+
+	sortTree(root.children);
+	return root.children;
+}
+
+function sortTree(nodes: TreeNode[]): void {
+	nodes.sort((a, b) => {
+		if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+		return a.name.localeCompare(b.name);
+	});
+	for (const node of nodes) {
+		if (node.type === 'folder') sortTree(node.children);
+	}
 }
