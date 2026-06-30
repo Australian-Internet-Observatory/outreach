@@ -303,11 +303,12 @@
 			const folder: Zippable = {};
 			for (const zip of zips) {
 				if (zip.status !== 'ready' || zip.entries.length === 0) continue;
-				const entries: Zippable = {};
+				const prefix = hasMultipleTopDirs
+					? `${topDirOf(zip.target)}/${zip.name}/`
+					: `${zip.name}/`;
 				for (const entry of zip.entries) {
-					entries[entry.path] = entry.content;
+					folder[`${prefix}${entry.path}`] = entry.content;
 				}
-				folder[zip.name] = entries;
 			}
 			const combined = zipSync(folder, { level: 6 });
 			const blob = new Blob([combined], { type: 'application/zip' });
